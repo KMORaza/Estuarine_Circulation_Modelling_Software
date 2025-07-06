@@ -153,7 +153,7 @@ The Estuarine Circulation Modeling software is a desktop software written to sim
    - Models water level and velocity fields in 2D, accounting for tidal forcing, wind stress, Coriolis force, and bottom friction. Includes mass conservation and momentum balance, with support for wet/dry transitions and wave effects.
 
 2. **Baroclinic Flow**
-   - Simulates buoyancy-driven flows caused by density gradients due to salinity and temperature variations. Density is computed using a linear or UNESCO equation of state from `EqOfState.cs`, influencing velocity updates.
+   - Simulates buoyancy-driven flows caused by density gradients due to salinity and temperature variations. Density is computed using equation of state from `EqOfState.cs`, influencing velocity updates.
 
 3. **Passive Scalar Transport**
    - Models the advection and diffusion of passive scalars (e.g., pollutants) in 1D, driven by velocity fields and eddy diffusivity. Includes source terms for river and ocean inputs.
