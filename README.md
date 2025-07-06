@@ -15,7 +15,7 @@ The Estuarine Circulation Modeling software is a desktop software written to sim
    - Applies boundary conditions for river (x=0) and ocean (x=1000 m) interfaces.
    - Integrates wet/dry dynamics and wave-current interactions.
 
-3. **2D Shallow Water Equations.cs**:
+3. **2D Shallow Water Equations**:
    - Implements a 2D shallow water model with a GUI for visualizing water level, velocity, and salinity fields.
    - Allows user control over tidal amplitude, period, wind speed, wind direction, wave height, and grid size.
    - Supports wet/dry transitions and wave-enhanced friction via external modules.
