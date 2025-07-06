@@ -147,7 +147,7 @@ The Estuarine Circulation Modeling software is a desktop software written to sim
    - `AdaptiveMeshRef.cs` refines grids based on velocity gradients or water level changes.
    - User inputs (e.g., tidal period, wind speed) are updated via GUI controls or programmatic methods (e.g., `UpdateParameters` in `WindForcing.cs`).
 
-## Physics and Math Models
+## Physikalische und Mathematische Modelle (Physics and Mathematical Models)
 
 1. **Shallow Water Dynamics**
    - Models water level and velocity fields in 2D, accounting for tidal forcing, wind stress, Coriolis force, and bottom friction. Includes mass conservation and momentum balance, with support for wet/dry transitions and wave effects.
