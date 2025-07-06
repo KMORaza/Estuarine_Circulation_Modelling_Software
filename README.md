@@ -69,7 +69,7 @@ The Estuarine Circulation Modeling software is a desktop software written to sim
     - Models circulation in bifurcated estuarine channels, accounting for branching flow dynamics and tidal effects.
 
 15. **Equations of State**:
-    - Computes water density based on salinity and temperature using linear or UNESCO equations of state.
+    - Computes water density based on salinity and temperature using equations of state.
 
 16. **Vertical Discretization**:
     - Provides sigma (terrain-following) and z-level (fixed horizontal layers) coordinate systems for vertical grid setup.
