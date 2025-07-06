@@ -180,3 +180,544 @@ The Estuarine Circulation Modeling software is a desktop software written to sim
 
 10. **Tidal Straining**
     - Models tidal straining and internal tide effects, computing Stokes drift and TKE production due to tidal shear in a sigma-coordinate system.
+      
+## Struktur der Ästuarzirkulation-Modelle (Estuarine Circulation Modeling Framework)
+
+### Hydrodynamic Solver
+
+The momentum equation solves:
+
+```
+∂u/∂t + u·∂u/∂x = -1/ρ ∂p/∂x + ν_eff ∂²u/∂x² + g ∂η/∂x + F_coriolis
+```
+
+Where:
+- u = velocity (m/s)
+- p = pressure (Pa)
+- ρ = density (kg/m³)
+- ν_eff = effective viscosity (m²/s)
+- η = water surface elevation (m)
+- F_coriolis = Coriolis force term
+
+For non-hydrostatic cases, the pressure splits into:
+p = p_hydrostatic + p_dynamic
+where p_hydrostatic = ρ*g*(D - z)
+
+### k-ε Turbulence Modeling
+
+The RANS solver implements:
+1. Turbulent kinetic energy (k) equation:
+```
+∂k/∂t + u·∂k/∂x = ∂/∂x[(ν+ν_t/σ_k)∂k/∂x] + P_k - ε
+```
+2. Dissipation rate (ε) equation:  
+```
+∂ε/∂t + u·∂ε/∂x = ∂/∂x[(ν+ν_t/σ_ε)∂ε/∂x] + C1_ε(ε/k)P_k - C2_ε(ε²/k)
+```
+With:
+- ν_t = Cμ k²/ε (eddy viscosity)
+- P_k = ν_t (∂u/∂x)² (production term)
+- Constants: Cμ=0.09, σ_k=1.0, σ_ε=1.3, C1_ε=1.44, C2_ε=1.92
+
+### Salinity/Temperature Transport
+
+Solved via advection-diffusion:
+```
+∂C/∂t + u·∂C/∂x = ∂/∂x(K ∂C/∂x)
+```
+Where:
+- C = scalar concentration (salinity or temperature)
+- K = diffusivity (m²/s) = molecular + turbulent (ν_t/Sc_t)
+- Sc_t = turbulent Schmidt number (~0.7)
+
+### Bifurcation Handling
+
+The bifurcated channel model:
+1. Creates three connected segments:
+   - Main channel (0 ≤ x ≤ L_bifurcation)
+   - Branch 1 (scaled depth × 0.8)
+   - Branch 2 (scaled depth × 1.2)
+2. Modifies mixing at branches via:
+   ```
+   ν_t_branch = ν_t_main × depth_scale
+   ```
+   ```
+   u_tidal_branch = u_tidal_main × tidal_scale
+   ```
+3. Maintains mass continuity at junction
+
+### Numerical Model
+
+- Spatial discretization: Central differences for diffusion terms
+- Time integration: Explicit Euler scheme
+- Stability enforcement:
+  - Velocity CFL condition: u·dt/dx < 1
+  - Diffusion condition: K·dt/dx² < 0.5
+- Boundary conditions:
+  - River end: Fixed inflow velocity
+  - Ocean end: Tidal forcing
+  - Branch ends: Zero-gradient
+
+### Shallow Water Equations (Hydrodynamics)
+
+**Continuity Equation**:
+```
+∂η/∂t + ∂(H·u)/∂x = 0
+```
+
+**Momentum Equation**:
+```
+∂u/∂t + u·∂u/∂x = -g ∂η/∂x + (1/H) ∂(H·τ)/∂x - (C_f·|u|·u)/H + F
+```
+
+Where:
+- η = water surface elevation (m)
+- H = total water depth = h_bottom + η
+- u = depth-averaged velocity (m/s)
+- τ = turbulent stress tensor (τ = ν_eff·∂u/∂x)
+- C_f = bottom friction coefficient (~0.002-0.005)
+- F = body forces (Coriolis, wind, baroclinic)
+
+### Turbulence Closure (k-ε Model)
+
+**Turbulent Kinetic Energy (k)**:
+```
+∂k/∂t + u·∂k/∂x = P_k + ∂/∂x[(ν+ν_t/σ_k)∂k/∂x] - ε
+```
+
+**Dissipation Rate (ε)**:
+```
+∂ε/∂t + u·∂ε/∂x = C1_ε(ε/k)P_k + ∂/∂x[(ν+ν_t/σ_ε)∂ε/∂x] - C2_ε(ε²/k)
+```
+- With production term: `P_k = ν_t·(∂u/∂x)²`
+- Eddy viscosity calculated as: `ν_t = Cμ·k²/ε`
+
+### Salinity Transport Equation
+```
+∂S/∂t + u·∂S/∂x = ∂/∂x[(K_m + ν_t/Sc_t)∂S/∂x]
+```
+Where:
+- S = salinity (PSU)
+- K_m = molecular diffusivity (~10⁻⁹ m²/s)
+- Sc_t = turbulent Schmidt number (~0.7)
+
+### Temperature Transport Equation
+```
+∂T/∂t + u·∂T/∂x = ∂/∂x[(α + ν_t/Pr_t)∂T/∂x] + Q_net/(ρ·c_p·H)
+```
+Where:
+- T = temperature (°C)
+- α = thermal diffusivity (~1.4×10⁻⁷ m²/s)
+- Pr_t = turbulent Prandtl number (~0.85)
+- Q_net = net heat flux (W/m²)
+- c_p = heat capacity (~4186 J/kg·K)
+
+### Salt Wedge Dynamics
+
+The salt wedge position (x_w) evolves via: 
+```
+dx_w/dt = u_r - u_e - u_t·sin(ωt)
+```
+- u_r = river velocity = Q_r/(B·H)
+- u_e = entrainment velocity = E·√(g'·H)
+- u_t = tidal velocity amplitude
+- g' = reduced gravity = g·Δρ/ρ
+- E = entrainment coefficient (~10⁻⁴-10⁻³)
+
+### Baroclinic Pressure Gradient
+
+Implemented as:
+```
+∂p_b/∂x = -g ∫_η^-h (∂ρ/∂x) dz
+```
+
+With density calculated via:
+```
+ρ = ρ_fresh + β_S·S + β_T·T
+```
+where β_S ≈ 0.8 kg/m³/PSU, β_T ≈ -0.2 kg/m³/°C
+
+### Bifurcation Physics
+
+**Branch Flow Partitioning** uses:
+```
+Q_1/Q_2 = (B_1·H_1^(5/3)·√(S_1)) / (B_2·H_2^(5/3)·√(S_2))
+```
+- Q = discharge
+- B = width
+- H = depth
+- S = energy slope
+
+**Branch-Specific Modifications**:
+```
+ν_t^branch = ν_t^main × (H_branch/H_main)^(4/3)
+```
+```
+u_tidal^branch = u_tidal^main × (H_main/H_branch)^(1/2)
+```
+
+### Numerical Discretization
+
+**Spatial Derivatives**:
+- Advection: 
+```
+∂φ/∂x ≈ (φ_{i+1} - φ_{i-1})/(2Δx)
+```
+- Diffusion: 
+```
+∂²φ/∂x² ≈ (φ_{i+1} - 2φ_i + φ_{i-1})/Δx²
+```
+**Time Integration**:
+```
+φ^{n+1} = φ^n + Δt·F(φ^n)
+```
+**Stability Criteria**:
+- CFL: Δt < Δx/max(|u| + √(gH))
+- Diffusion: Δt < 0.5·Δx²/ν_eff
+
+### Boundary Conditions
+1. **River Boundary (x=0)**:
+   - u = Q_r/(B·H)
+   - S = 0 PSU
+   - T = T_river
+2. **Ocean Boundary (x=L)**:
+   - η = A_tide·sin(ωt)
+   - S = S_ocean
+   - T = T_ocean
+3. **Branch Connections**:
+   - Continuity: ΣQ_in = ΣQ_out
+   - Momentum: p_1 = p_2 = p_3 at junction
+
+## Gesamtvariation Abnehmend (Total Variation Diminishing)
+
+### Fluid Dynamics Core
+
+**Shallow Water Momentum Equations**:
+```
+∂u/∂t + u·∂u/∂x + w·∂u/∂z = -1/ρ ∂p/∂x + ∂/∂z(ν_t ∂u/∂z) + g_x
+```
+```
+∂w/∂t + u·∂w/∂x + w·∂w/∂z = -1/ρ ∂p/∂z + ∂/∂z(ν_t ∂w/∂z) + g_z
+```
+- u = horizontal velocity (m/s)
+- w = vertical velocity (m/s)
+- ν_t = turbulent eddy viscosity (m²/s)
+- g_x, g_z = gravitational acceleration components
+
+**Density Calculation**:
+```
+ρ = ρ_0 [1 - α(T-T_0) + β_S(S-S_0)]
+```
+- α = thermal expansion coeff (2e-4 /°C)
+- β_S = saline contraction coeff (8e-4 /PSU)
+
+### Scalar Transport
+
+**Salinity/Temperature Advection**:
+```
+∂C/∂t + ∇·(uC) = ∇·(K∇C) + S_C
+```
+Implemented via TVD flux limiter:
+```
+F_i+1/2 = F_L + ψ(r)(F_H - F_L)
+```
+- `ψ(r) = max(0, min(2r, (1+r)/2, 2))` (Superbee limiter)
+- `r = (C_i - C_i-1)/(C_i+1 - C_i)` (gradient ratio)
+
+### Turbulence Closure Models
+
+**k-epsilon Equations**:
+```
+∂k/∂t + u·∇k = ∇·[(ν+ν_t/σ_k)∇k] + P_k - ε
+```
+```
+∂ε/∂t + u·∇ε = ∇·[(ν+ν_t/σ_ε)∇ε] + C1_ε(ε/k)P_k - C2_ε(ε²/k)
+```
+**k-omega Equations**:
+```
+∂k/∂t + u·∇k = ∇·[(ν+ν_t/σ_k)∇k] + P_k - β* kω
+```
+```
+∂ω/∂t + u·∇ω = ∇·[(ν+ν_t/σ_ω)∇ω] + α_ω(ω/k)P_k - β ω²
+```
+- `P_k = ν_t(∂u/∂z)² - (g/ρ_0)ν_t/Pr_t ∂ρ/∂z` (shear+buoyancy production)
+- `ν_t = Cμ k²/ε` (k-epsilon) or `k/ω` (k-omega)
+
+### TVD Flux Calculation
+
+The HLL (Harten-Lax-van Leer) approximate Riemann solver:
+```
+F_HLL = 
+{ F_L if s_L ≥ 0
+{ F_R if s_R ≤ 0
+{ (s_R F_L - s_L F_R + s_L s_R (U_R - U_L))/(s_R - s_L) otherwise
+```
+- `s_L = min(u_L - c_L, u_R - c_R, 0)`
+- `s_R = max(u_L + c_L, u_R + c_R, 0)`
+
+### Unstructured Grid Handling
+
+For triangular elements:
+- Gradient reconstruction via Green-Gauss method:
+  ```
+  ∇φ ≈ 1/V ∑_faces (φ_face · n_face) A_face
+  ```
+- Flux integration using control volume approach
+
+### Stability Enforcement
+
+- CFL condition: 
+   ```
+   max(|u|Δt/Δx + |w|Δt/Δz) ≤ 1
+   ```
+- Positivity preservation for k, ε, ω via:
+  ```
+  φ_new = max(φ_min, φ + Δt·RHS)
+  ```
+## Stratifizierung (Stratification)
+
+**Key Components**:
+- Salinity and temperature-driven density variations
+- Turbulence closure schemes (k-epsilon/k-omega)
+- Passive scalar transport
+- Richardson number-based mixing suppression
+
+### Density Calculation
+Uses equation of state:
+```
+ρ = ρ₀[1 - α(T-T₀) + βₛ(S-S₀)]
+```
+- ρ = water density (kg/m³)
+- α = thermal expansion coeff (2×10⁻⁴/°C)
+- βₛ = saline contraction coeff (8×10⁻⁴/PSU)
+- T₀,S₀ = reference values (20°C, 35PSU)
+
+### Gradient Richardson Number
+```
+Ri = (g/ρ₀)(∂ρ/∂z)/(∂u/∂z)²
+```
+Critical values:
+- `Ri > 0.25` → Strong stratification (reduced mixing)
+- `Ri < 0.25` → Well-mixed conditions
+
+### Turbulence Modulation
+
+**k-epsilon Model**:
+```
+ν_eff = ν₀/(1 + Ri/Ri_crit)
+```
+**k-omega Model**:
+```
+ν_eff = ν₀(1 + 0.5 min(Ri,Ri_crit))/(1 + Ri)
+```
+- ν₀ is the neutral eddy viscosity
+
+### Scalar Transport Equation
+```
+∂C/∂t + u·∂C/∂x = ∂/∂x(K ∂C/∂x) + S
+```
+With boundary conditions:
+- River end: C = C_river
+- Ocean end: C = C_ocean
+
+### Mechanism
+1. Compute density profile from S,T fields
+2. Calculate Richardson number at each node
+3. Adjust eddy viscosity based on Ri
+4. Solve transport equations:
+   - Salinity: `∂S/∂t + u·∇S = ∇·(K∇S)
+   - Temperature: ∂T/∂t + u·∇T = ∇·(K∇T)
+   - Passive scalar: ∂C/∂t + u·∇C = ∇·(K∇C)
+
+### Stability Controls
+- Density clamping: `1000 ≤ ρ ≤ 1030 kg/m³`
+- Scalar bounds: `0 ≤ C ≤ C_river`
+- Time step limitation: `Δt < Δx²/(2K_max)`
+
+## Baroklinische-Strömung (Baroclinic Flow)
+
+**Key Components**:
+- Equation of state for seawater density
+- Richardson number-dependent turbulent mixing
+- Heat flux parameterization (shortwave, longwave, sensible, latent)
+- Semi-implicit numerical schemes for stability
+
+### Density Calculation
+Equation of state:
+```
+ρ(S,T,P) = ρ₀ + Δρ(S,T,P)
+```
+- ρ₀ = 1000 kg/m³ (reference)
+- Δρ = density anomaly from salinity (S), temperature (T), pressure (P)
+
+### Baroclinic Pressure Gradient
+```
+∇p_b = g·h·∇ρ/ρ₀
+```
+- g = 9.81 m/s² (gravity)
+- h = estuary depth (m)
+- ∇ρ = horizontal density gradient
+
+### Turbulent Mixing
+
+**Eddy Diffusivities**:
+- Horizontal: 
+  ```
+  Kₓ = νₜ + l·√(|∂u/∂x|)
+  ```
+- Vertical: 
+  ```
+  K_z = (νₜ + K_z₀)/(1 + Ri/Ri_c)
+  ```
+   - νₜ = turbulent viscosity (m²/s)
+   - l = 10m (mixing length scale)
+   - Ri = g/ρ₀·∂ρ/∂z/(∂u/∂z)² (Richardson number)
+   - Ri_c = 0.25 (critical value)
+
+### Heat Flux Components
+
+**Surface Energy Balance**:
+```
+Q_net = Q_sw↓ - Q_lw↑ - Q_sensible - Q_latent
+```
+- Shortwave: `Q_sw = 1000(1-α)(1-cc)cos(2πt/86400)` W/m²
+- Longwave: `Q_lw = εσ(T_w⁴ - T_a⁴)`
+- Sensible: `Q_sen = ρₐc_pₐC_hU(T_w-T_a)B`
+- Latent: `Q_lat = ρₐL_vC_eU(q_s-q_a)`
+
+### Transport Equations
+
+**Salinity**:
+```
+∂S/∂t + u·∇S = ∇·(Kₓ∂S/∂x + K_z∂S/∂z) + Q_S
+```
+- Q_S = -γ·|∇u|·S (river) or +γ·|∇u|·(S_ocean-S) (ocean)
+
+**Temperature**:
+```
+∂T/∂t + u·∇T = ∇·(Kₓ∂T/∂x + K_z∂T/∂z) + Q_T/ρc_p
+```
+- Q_T = net surface heat flux
+
+### Mechanism
+1. **Advection**:
+   - Van Leer flux limiter scheme
+   - 2nd order accurate with TVD properties
+2. **Diffusion**:
+   - Crank-Nicolson semi-implicit method
+   - Tridiagonal matrix solver (Thomas algorithm)
+3. **Boundary Conditions**:
+   - River: S=0, T=15°C
+   - Ocean: S=35PSU, T=20°C
+
+### Key Parameters
+
+**Physical Constants**:
+- Gravitational acceleration: 9.81 m/s²
+- Water properties:
+  - ρ₀ = 1000 kg/m³
+  - c_p = 4184 J/kg·K
+  - α = 2×10⁻⁴ /°C
+  - β_S = 8×10⁻⁴ /PSU
+- **Atmospheric Forcing**:
+   - Wind speed: 5 m/s
+   - Air temperature: 15°C
+   - Cloud cover: 50%
+   - Albedo: 6%
+- **Numerical Settings**:
+   - Base diffusivities:
+   - Kₓ₀ = 0.1 m²/s
+   - K_z₀ = 0.01 m²/s
+   - Time step: 3600s (adaptive)
+   - Grid resolution: Δx = L/N
+
+### Implementation
+
+1. **Stability Controls**:
+   - Density clamping (1000-1030 kg/m³)
+   - Temperature bounds (0-30°C)
+   - Salinity bounds (0-35PSU)
+2. **Performance Optimizations**:
+   - Precomputed coefficients
+   - Vectorized operations
+   - Parallel tridiagonal solver
+3. **Validation Metrics**:
+   - Richardson number distribution
+   - Salt wedge penetration
+   - Surface heat budget closure
+
+## Umfassender-Leistungmechanismus (Comprehensive Forcing Mechanism)
+
+- **3D Navier-Stokes Solver**  
+Solves the incompressible Navier-Stokes equations with Boussinesq approximation and salinity/temperature transport:
+
+   - **Momentum Equations**:  
+  ```
+  ∂u/∂t + u·∇u = -∇p/ρ₀ + ν∇²u + g(ρ/ρ₀) + F_wind + F_Coriolis
+  ```  
+  (where ρ = ρ₀ + β_S·S - β_T·T)
+
+   - **Continuity**: `∇·u = 0`  
+   - **Salinity Transport**: `∂S/∂t + u·∇S = κ∇²S`  
+   - **Pressure Correction**: Iteratively solves ∇²p = ∇·(u·∇u) to enforce incompressibility.
+
+- **2D Shallow Water Equations**  
+Depth-averaged form with wet/dry tracking:
+
+   - **Mass Conservation**: `∂η/∂t + ∇·(H·u) = 0`  
+  (H = h + η, where h is bathymetry, η is surface elevation)
+
+   - **Momentum**:  
+  ```
+  ∂u/∂t + u·∇u = -g∇η + ν∇²u + τ_wind/(ρ₀H) - c_f|u|u/H  
+  ```
+
+- **1D Simplified Model**  
+Longitudinal profiles only:
+   - **Velocity**: 
+   ```
+   ∂u/∂t + u ∂u/∂x = -g ∂η/∂x + ν ∂²u/∂x² + τ_wind/(ρ₀D)  
+   ```
+   - **Salinity**: 
+   ```
+   ∂S/∂t + u ∂S/∂x = κ ∂²S/∂x²  
+   ```
+- **Flux Limiter Application** (Minmod limiter):  
+   For a quantity φ (velocity, salinity):  
+   ```
+   φ_limited = φ + ψ(r)(φ_upwind - φ)  
+   ```
+   where ψ(r) = max(0, min(1, r)) and r = (φ - φ_upwind)/(φ_downwind - φ).
+- **Advection Terms** (e.g., 3D salinity):  
+   ```
+   sAdvX = u ≥ 0 ? u·(S[i] - S[i-1])/Δx + ψ(r)(S[i+1] - S[i])/Δx  
+           : u·(S[i+1] - S[i])/Δx + ψ(r)(S[i] - S[i-1])/Δx  
+   ```
+- **Time Step Control**:  
+   ```
+   Δt = CFL × min(Δx/(|u|+√gH), Δx²/(2ν))  
+   ```
+   (CFL = 0.4 for stability)
+- **Tidal Forcing**:  
+   ```
+   η(t) = A_tide·sin(2πt/T_tide)  
+   ```
+   Implemented as boundary condition at the ocean end.
+- **Wind Stress**:  
+   ```
+   τ_wind = ρ₀·c_d·|U_wind|²
+   ```
+   ```  
+   c_d = 0.001, U_wind = (u_wind, v_wind)
+   ```
+- **River Discharge**:  
+   Upstream boundary condition: u(0) = Q_river/(W·D).
+- **Salinity Gradients**:  
+   Source term in transport equation: ∇S = ∂S/∂x (user-defined).
+- **Cell Status**:  
+   Wet if H > h_min (default h_min = 0.01 m), else dry.
+- **Boundary Handling**:  
+   - No flux through dry cells.  
+   - Momentum terms set to zero in dry regions.
+
+
