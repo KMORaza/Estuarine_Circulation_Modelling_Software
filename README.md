@@ -1261,5 +1261,16 @@ y_new = y + Δt/6*(k1 + 2k2 + 2k3 + k4)
     - Regular: For i from 0 to n-1, rev = bit-reverse(i, logN), swap data[i] and data[rev] if rev > i.
   - **Butterfly Operation**:
     - Regular: For size = 2 to n, `halfSize = size/2, angleStep = -2 * π / size`
-    - For each block: t = w * data[k], data[k] = data[j] - t, data[j] = data[j] + t
-    - w = cos(angleStep * (j - i)) + i * sin(angleStep * (j - i))
+    - For each block:
+      ```
+      t = w * data[k], data[k] = data[j] - t, data[j] = data[j] + t
+      ```
+      ```
+      w = cos(angleStep * (j - i)) + i * sin(angleStep * (j - i))
+      ```
+
+---
+
+Ich habe geschrieben ein [Dokument](https://github.com/KMORaza/Estuarine_Circulation_Modelling_Software/blob/main/software-document.pdf) über die Struktur des Ästuarzirkulationsmodells, die Arbeitslogik, die Simulationslogik, die Funktionalitäten und deren Implementierung, die physikalischen und mathematischen Modelle und das Arbeitsprinzip jeder Funktionalität. Ich empfehle das Lesen des Dokuments. 
+
+I have written a [document](https://github.com/KMORaza/Estuarine_Circulation_Modelling_Software/blob/main/software-document.pdf) about the foundation of estuarine circulation model, operation logic, simulation logic, functionalities and their implementation, physics and math models utilized, and working principle of each functionality. I suggest to read the document.
