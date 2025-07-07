@@ -676,4 +676,424 @@ Longitudinal profiles only:
    - No flux through dry cells.  
    - Momentum terms set to zero in dry regions.
 
+## Wellen-Strömungs-Wechselwirkung (Wave-Current Interaction)
+
+### Stokes Drift Calculation (Linear Wave Theory)
+**Equations:**
+1. Wave length approximation (shallow water): `L = √(g*d) * T`
+2. Wave number: `k = 2π/L`
+3. Angular frequency: `ω = 2π/T`
+4. Stokes drift magnitude (near surface):
+   ```
+   u_s = (a²ωk * cosh(2kz)) / (2 * sinh²(kd))
+   ```
+**Implementation:**
+- Uses shallow water approximation for wave length
+- Calculates magnitude then resolves into x,y components
+- Returns zero for invalid wave conditions
+
+### Wave-Enhanced Bottom Friction
+**Equations:**
+1. Bottom orbital velocity:
+   ```
+   U_b = (aω) / sinh(kd)
+   ```
+2. Enhanced friction coefficient:
+   ```
+   C_d = C_d0 * (1 + β*U_b)
+   ```
+**Implementation:**
+- Uses empirical factor β = 0.2
+- Caps maximum friction coefficient at 0.01
+- Returns base value for invalid wave conditions
+
+## Wind-Antriebskraft (Wind Forcing)
+The `WindForcing` class calculates wind stress components (τₓ, τᵧ) that drive surface currents in estuarine circulation modeling. Key operations:
+- Computes wind drag coefficient (C_d) based on wind speed and wave height
+- Calculates wind stress components in eastward (τₓ) and northward (τᵧ) directions
+- Handles parameter updates from UI inputs
+
+### Wind Drag Coefficient Calculation
+**Equation**:  
+`C_d = (0.75 + 0.067 * U10 + 0.1 * H_s) * 10^-3`  
+**Where**:  
+- U10 = Wind speed at 10m height (m/s)  
+- H_s = Significant wave height (m)  
+**Bounds**: Constrained between 0.001 and 0.003  
+```
+double Cd = (0.75 + 0.067 * windSpeed + 0.1 * waveHeight) * 1e-3;
+return Math.Max(0.001, Math.Min(0.003, Cd));
+```
+
+### Wind Stress Calculation
+**Equations**:  
+`τₓ = ρ_air * C_d * U10² * cos(θ)`  
+`τᵧ = ρ_air * C_d * U10² * sin(θ)`  
+**Where**:  
+- ρ_air = Air density (1.225 kg/m³)  
+- θ = Wind direction in degrees (converted to radians)  
+```
+double windSpeedSquared = windSpeed * windSpeed;
+double tauX = rhoAir * Cd * windSpeedSquared * Math.Cos(windDirection * Math.PI / 180.0);
+double tauY = rhoAir * Cd * windSpeedSquared * Math.Sin(windDirection * Math.PI / 180.0);
+```
+
+### Input and Output
+- Input
+  - `windSpeed`: Non-negative value (m/s)  
+  - `windDirection`: Direction in degrees (0-360)  
+  - `waveHeight`: Non-negative significant wave height (m)  
+- Output
+  - Tuple `(tauX, tauY)` representing wind stress components in N/m²
+
+## Nass-Trocken Algorithmus (Wet & Dry Algorithm)
+Implements a wetting-drying scheme for estuarine modeling with these key operations:
+1. **Initialization**:
+   - Takes bathymetry data (positive downward) and minimum depth threshold (Dmin)
+   - Creates a boolean wet/dry status matrix (isWet)
+   - Initializes status based on initial water levels
+2. **Main Application**:
+   - Updates wet/dry status by checking total depth (η + h) against Dmin
+   - Sets velocities, water levels, and salinity to zero in dry cells
+   - Adjusts fluxes at wet/dry interfaces to prevent flow into dry areas
+   - Performs mass conservation correction for water levels
+3. **Boundary Handling**:
+   - Special treatment for cells adjacent to dry areas
+   - Flux limiting at wet/dry interfaces
+
+### Wet/Dry Criterion
+- Cell is wet `IF (η + h) ≥ Dmin`
+- Cell is dry `IF (η + h) < Dmin`
+  - η = water surface elevation (positive upward)
+  - h = bathymetric depth (positive downward)
+  - Dmin = user-defined minimum wet depth threshold
+### Flux Limiting at Interfaces
+For u-velocity at eastern face (i,j):
+```
+u[i,j] = min(u[i,j], 0) IF eastern neighbor (i+1,j) is dry
+```
+For u-velocity at western face (i-1,j):
+```
+u[i-1,j] = max(u[i-1,j], 0) IF western neighbor (i-1,j) is dry
+```
+Analogous rules apply for v-velocity in north/south directions
+
+### Mass Conservation
+Water level update considers net fluxes:
+```
+Δη = (Flux_in - Flux_out) / (dx·dy)
+```
+Where fluxes are calculated as:
+```
+Flux_u = u·(η + h)·Δy·Δt
+Flux_v = v·(η + h)·Δx·Δt
+```
+Only wet neighbors contribute to fluxes
+
+### Depth Calculation
+Total water depth H at any point:
+```
+H = η + h
+```
+With constraints:
+```
+H ≥ 0 (enforced by setting η = -h when dry)
+```
+
+## Parametrisierung durch Simpson-Hunter-Mechanismus (Simpson-Hunter Mechanism Parameterization)
+This module implements key physical processes affecting estuarine circulation:
+1. Stokes drift from surface waves
+2. Internal tide effects on vertical mixing
+3. Tidal straining (Simpson-Hunter mechanism)
+
+### Stokes Drift Calculation
+**Equation**:  
+```
+u_s = aω * exp(-2kz) * sin(θ)
+```  
+Where:  
+- `u_s` = Stokes drift velocity (m/s)  
+- `a` = wave amplitude (m)  
+- `ω` = wave angular frequency (2π/T)  
+- `k` = wavenumber (2π/(T√(gH)))  
+- `z` = depth coordinate (m)  
+- `θ` = tidal phase  
+
+```
+double k = 2 * Math.PI / (wavePeriod * Math.Sqrt(gravity * depth));
+double z = sigma * depth;
+double stokesDrift = waveAmplitude * 2 * Math.PI / wavePeriod * Math.Exp(-2 * k * z) * Math.Sin(tidalPhase);
+```
+
+### Internal Tide Effects
+**Equations**:  
+- Buoyancy frequency:  
+  ```
+  N² = -g/ρ₀ * ∂ρ/∂z
+  ```  
+- Vertical velocity perturbation:  
+  ```
+  w_tide = A * sin(θ) * √N² * cos(2πz/H)
+  ```  
+- TKE production:  
+  `P = ε * (∂w/∂z)²`  
+ 
+```
+double dRho_dz = (rho2 - rho1) / (sigmaStep * depth);
+double N2 = -gravity / referenceDensity * dRho_dz;
+double wTide = internalTideAmplitude * Math.Sin(tidalPhase) * Math.Sqrt(N2) * Math.Cos(2 * Math.PI * z / depth);
+double tkeProduction = 0.1 * internalTideAmplitude * dw_dz * dw_dz;
+```
+
+### Tidal Straining
+**Equation**:  
+```
+∂S/∂t = -C * u * ∂S/∂x
+```  
+Where:  
+- `C` = empirical coefficient  
+- `u` = tidal velocity  
+- `∂S/∂x` = horizontal salinity gradient  
+```
+double ds_dx = (cells[cellIdx + 1].Salinity[k] - cells[cellIdx - 1].Salinity[k]) / (2 * avgCellWidth);
+double straining = -simpsonHunterCoefficient * tidalVelocity * ds_dx;
+```
+## Asymmetrische Gezeitenmischung (Asymmetric Tidal Mixing)
+- 3D hydrodynamic solver for bifurcated estuaries
+- Unstructured grid with sigma-coordinate vertical layers
+- Tidal asymmetry modeling (flood/ebb differences)
+- Real-time visualization of multiple parameters
+
+### Navier-Stokes with Boussinesq Approximation
+```
+∂u/∂t + u·∇u = -∇p/ρ₀ + ν∇²u + (gρ'/ρ₀) + f×u - τ_b/ρ₀
+```
+- ∇·u = 0;
+- ρ' = ρ - ρ₀ = βS (salinity-driven density);
+- Fractional step method (predictor-corrector)
+- Advection: Upwind scheme with stabilization
+- Coriolis: Mid-latitude approximation (f = 1e-4 s⁻¹)
+- Bed friction: Quadratic drag law with asymmetry factor
+
+### Turbulence Model (k-ε with Richardson Number Damping)
+```
+∂k/∂t + u·∇k = ∇·[(ν+νₜ/σₖ)∇k] + Pₖ + P_{tide} - ε
+```
+```
+∂ε/∂t + u·∇ε = ∇·[(ν+νₜ/σ_ε)∇ε] + C₁ε(ε/k)Pₖ - C₂ε(ε²/k)
+```
+- νₜ = Cμ(k²/ε)(1 + αRi)^(-n)
+- Ri = -g/ρ₀ (∂ρ/∂z)/(∂u/∂z)²
+- Richardson-dependent mixing length
+- Internal tide TKE production (P_{tide})
+- Bifurcation-specific mixing adjustments
+
+### Tidal Asymmetry Mechanisms
+- Stokes drift: 
+  ```
+  u_s = (aω)²/(2σh)cos(2σz/h)cos(2ωt)
+  ```
+- Internal tide: 
+  ```
+  w_tide = A·sin(πz/h)·cos(ωt - kx)
+  ```
+- Tidal straining: 
+  ```
+  ∂S/∂t = -u·∇S + κ∇²S + γ(∂u/∂z)(∂S/∂z)
+  ```
+- Phase-dependent asymmetry factor (1.2 flood / 0.8 ebb)
+- Vertical structure functions for internal waves
+- Strain-induced stratification effects
+
+### Grid System
+- Unstructured cells with neighbor connectivity
+- 10 sigma layers (stretched vertical coordinates)
+- Bifurcated geometry (main channel + 2 branches)
+
+### Solver Algorithm
+- Predictor step (compute u*, v*, w*)
+- Pressure Poisson equation (SOR iteration)
+- Velocity correction (divergence-free)
+- Turbulence update (k-ε equations)
+- Scalar transport (salinity, turbidity)
+
+## Vertikale Diskretisierungsverfahren (Vertical Discretization)
+
+- **Sigma Coordinates (Terrain-Following)**
+   - Grid follows bottom topography
+   - Vertical coordinate σ ranges from 0 (surface) to 1 (bottom)
+   - Transformation: z = σ × H, where H is water depth
+   - Advantage: Resolves bottom boundary layer well
+- **Z-Level Coordinates (Fixed-Depth)**
+   - Fixed horizontal layers in physical z-space
+   - Uniform spacing: Δz = H/(Nz-1)
+   - Advantage: Simpler vertical pressure gradient calculation
+
+### Coordinate Transformation
+
+For both systems, metric terms are computed using central differences
+**Z_xi (∂z/∂ξ)**:
+- Interior points: `(z[i+1,j] - z[i-1,j])/(2Δξ)`
+- Boundaries: Forward/backward differences
+**Z_eta (∂z/∂η)**:
+- Interior points: `(z[i,j+1] - z[i,j-1])/(2Δη)`
+- Boundaries: Forward/backward differences
+
+### Transformed System
+- **Continuity Equation**:
+   ```
+   ∂η/∂t + ∂(Hu)/∂ξ + ∂(Hv)/∂η = 0
+   ```
+- **Momentum Equations**:
+   ```
+   ∂u/∂t + u∂u/∂ξ + v∂u/∂η = -g∂η/∂ξ + (∂τ_ξξ/∂ξ + ∂τ_ξη/∂η)/H
+   ```
+   ```
+   ∂v/∂t + u∂v/∂ξ + v∂v/∂η = -g∂η/∂η + (∂τ_ηξ/∂ξ + ∂τ_ηη/∂η)/H
+   ```
+- u,v = depth-averaged velocities
+- τ = stress terms
+- H = total water depth (η + h)
+
+### Implementation
+- **Grid Initialization**:
+   - Sigma: Creates terrain-following coordinates proportional to depth
+   - Z-level: Creates fixed-depth layers
+- **Depth Update**:
+   - Dynamically adjusts grid when bathymetry changes
+   - Recomputes all metric terms
+- **Metric Computation**:
+   - Calculates spatial derivatives of vertical coordinates
+   - Uses second-order centered differences where possible
+   - First-order at boundaries
+
+## Richardson-Zahl-abhängiges Mischen und schubspannungsinduziertes Mischen (Richardson Number Dependent Mixing and Shear-Strain-Induced Mixing)
+
+This module calculates:
+1. Richardson number (Ri) dependent turbulent viscosity adjustment
+2. Shear-strain-induced turbulent kinetic energy (TKE) production
+3. Average Richardson number for model output
+
+### Richardson Number Calculation
+Gradient Richardson number formula: `Ri = N² / S²`
+- N² = Brunt-Väisälä frequency squared (buoyancy frequency)
+- S² = Shear frequency squared
+
+Buoyancy frequency squared (N²): `N² = -(g/ρ₀) * ∂ρ/∂z`
+- g = gravitational acceleration (9.81 m/s²)
+- ρ₀ = reference density (1000 kg/m³)
+- ∂ρ/∂z = vertical density gradient
+
+Shear squared (S²): `S² = (∂u/∂z)² + (∂v/∂z)²`
+
+### Turbulent Viscosity Adjustment
+Standard k-ε model turbulent viscosity:
+```
+νₜ = Cμ * k²/ε
+```
+with Richardson number damping:
+```
+νₜ_adjusted = νₜ * f(Ri)
+```
+where stability function f(Ri) is:
+```
+f(Ri) = 1 / (1 + 10*Ri)
+```
+
+### Shear-Strain Production Term
+TKE production from shear:
+```
+P = νₜ * [(∂u/∂z)² + (∂v/∂z)²]
+```
+
+### Vertical Gradients
+Calculated using sigma-coordinates:
+```
+∂ρ/∂z ≈ (ρ[k+1] - ρ[k]) / (Δσ * depth)
+```
+```
+∂u/∂z ≈ (u[k] - u[k+1]) / (Δσ * depth)
+```
+```
+∂v/∂z ≈ (v[k] - v[k+1]) / (Δσ * depth)
+```
+Where Δσ is the sigma-layer thickness (1/numSigmaLayers)
+
+## Lattice Boltzmann Large Eddy Simulation (LB-LES)
+
+This module implements:
+- 2D estuarine circulation modeling using Lattice Boltzmann Method (LBM)
+- Large Eddy Simulation (LES) turbulence modeling
+- Salinity and temperature transport
+- Vorticity and Q-criterion visualization
+- Time-averaged velocity fields
+
+### Lattice Boltzmann Method
+- Distribution functions for velocity (f) and salinity (g):
+```
+f_i(x + c_iΔt, t + Δt) = f_i(x,t) + [f_i^eq(x,t) - f_i(x,t)]/τ
+```
+```
+g_i(x + c_iΔt, t + Δt) = g_i(x,t) + [g_i^eq(x,t) - g_i(x,t)]/τ_s
+```
+Equilibrium distributions:
+```
+f_i^eq = w_i * ρ * [1 + 3(c_i·u) + 4.5(c_i·u)^2 - 1.5u^2]
+```
+```
+g_i^eq = w_i * S * ρ * [1 + 3(c_i·u) + 4.5(c_i·u)^2 - 1.5u^2]
+```
+### Smagorinsky LES Model
+Eddy viscosity calculation:
+- ν_t = (C_s * Δ)^2 * |S|
+- |S| = √(2S_ij S_ij)
+- S_ij = 0.5*(∂u_i/∂x_j + ∂u_j/∂x_i)
+
+### Vorticity and Q-Criterion
+- Vorticity:
+```
+ω = ∂v/∂x - ∂u/∂y
+```
+- Q-criterion:
+```
+Q = 0.5*(||Ω||^2 - ||S||^2)
+Ω = 0.5*(∇u - (∇u)^T)
+```
+
+### Navier-Stokes equations with Boussinesq approximation:
+```
+∂u/∂t + u·∇u = -∇p/ρ_0 + ν∇²u + g(ρ-ρ_0)/ρ_0
+```
+- ∇·u = 0
+
+Transport equations:
+```
+∂S/∂t + u·∇S = ∇·(ν_t ∇S)
+```
+```
+∂T/∂t + u·∇T = ∇·(ν_t ∇T)
+```
+
+### Smagorinsky Model
+Eddy viscosity:
+```
+ν_t = (C_s Δ)^2 * |S|
+```
+```
+Δ = (dx * dz)^(1/2)
+```
+
+### Time Integration Schemes
+- RK4:
+```
+k1 = f(t, y)
+k2 = f(t+Δt/2, y+Δt/2*k1)
+k3 = f(t+Δt/2, y+Δt/2*k2)
+k4 = f(t+Δt, y+Δt*k3)
+y_new = y + Δt/6*(k1 + 2k2 + 2k3 + k4)
+```
+- Crank-Nicolson:
+```
+(y_new - y)/Δt = 0.5*[f(t,y) + f(t+Δt,y_new)]
+```
 
