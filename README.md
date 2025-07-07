@@ -20,7 +20,7 @@ The Estuarine Circulation Modeling software is a desktop software written to sim
 4. **Total Variation Diminishing**:
    - Uses a TVD scheme with Harten-Lax-van Leer (HLL) flux to advect salinity, temperature, turbulent kinetic energy (k), and dissipation rate (epsilon) or specific dissipation rate (omega).
    - Supports structured (200x100) and unstructured (triangular mesh, 40x25 nodes) grids with bathymetry (shallower near river, x < 200 m).
-   - GUI offers visualization modes: plan view, cross-section, contour, and quiver plots, with controls for depth, x-position, tidal period, and turbulence model (k-epsilon or k-omega).
+   - UI offers visualization modes: plan view, cross-section, contour, and quiver plots, with controls for depth, x-position, tidal period, and turbulence model (k-epsilon or k-omega).
    - Tracks fields: salinity, temperature, velocity (x, z), density, k, epsilon/omega, eddy viscosity, and diffusivity.
 5. **Stratification**:
    - Models 1D vertical stratification of density, salinity, temperature, and passive scalars on a 100-point grid.
@@ -1097,3 +1097,169 @@ y_new = y + Δt/6*(k1 + 2k2 + 2k3 + k4)
 (y_new - y)/Δt = 0.5*[f(t,y) + f(t+Δt,y_new)]
 ```
 
+## Spektralanalysator (Spectral Analysis)
+
+###  Data Generation
+- **Spectral Analysis**:
+  - Generates synthetic time series data for variables like Richardson Number, Velocity, or Water Level using `GenerateSyntheticData`.
+  - Data incorporates tidal and inertial oscillations with added noise.
+  - Detects mixing events based on high variability (standard deviation) in a sliding window.
+- **EOF/POD Analysis**:
+  - Generates synthetic spatial-temporal data for Salinity (10x10 grid) or Velocity Profile (10 depth levels) using `GenerateSyntheticSalinityData` and `GenerateSyntheticVelocityData`.
+  - Data includes tidal influences and spatial gradients with random noise.
+
+### Analysis Execution
+- **Spectral Analysis** (`PerformSpectralAnalysis`):
+  - Applies Welch’s method to compute the PSD using a selected window function.
+  - Computes Short-Time Fourier Transform (STFT) for time-frequency heatmaps.
+  - Identifies dominant frequencies (e.g., M2, K1 tidal constituents) and checks for turbulence via spectral slope analysis.
+- **EOF/POD Analysis** (`PerformEOFAnalysis`):
+  - Constructs a data matrix from salinity or velocity data.
+  - Subtracts the mean to center the data.
+  - Uses Singular Value Decomposition (SVD) via power iteration to compute spatial modes, temporal coefficients, and singular values for up to three modes.
+  - Calculates explained variance for each mode.
+
+### Synthetic Data Generation
+- **Purpose**: Simulates estuarine variables with tidal and inertial influences.
+- **Equations**:
+  - **Richardson Number**:
+    - Regular: 
+    ```
+    Value = 0.5 + 0.3*sin(2*π*time/tidalPeriod) + 0.2*sin(2*π*time/ inertialPeriod) + noise
+    ```
+    - tidalPeriod = 43200 s (12 hours), inertialPeriod = 17 * 3600 s (17 hours).
+    - Noise: Random value added with 2% probability of a 0.5 spike.
+  - **Velocity**:
+    - Regular: 
+    ```
+    Value = 0.1 + 0.05 *sin(2*π*time/tidalPeriod) + 0.02*sin(2*π*time/(tidalPeriod/2)) + noise
+    ```
+    - tidalPeriod = 43200 s, noise = random(0, 0.01).
+  - **Water Level**:
+    - Regular: 
+    ```
+    Value = 1.0 * sin(2 * π * time / M2) + 0.5 * sin(2 * π * time / K1)
+    ```
+    - M2 = 44712 s (12.42 hours), K1 = 86148 s (23.93 hours).
+  - **Salinity**:
+    - Regular: 
+    ```
+    Salinity[x,y] = (30.0 + 2.0 * sin(2 * π * time / M2)) * (1.0 - 0.1 * (x + y)) + noise
+    ```
+    - M2 = 44712 s, noise = random(0, 0.5), x, y = grid indices (0 to 9).
+  - **Velocity Profile**:
+    - Regular: 
+    ```
+    Velocity[z] = (0.1 * sin(2 * π * time / M2)) * (1.0 - 0.1 * z) + noise
+    ```
+    - M2 = 44712 s, noise = random(0, 0.01), z = depth index (0 to 9).
+
+### Welch’s Method for Power Spectral Density (PSD)
+- **Purpose**: Estimates the power spectral density of time series data using overlapping segments and a window function.
+- **Equations**:
+  - **Window Function**:
+    ```
+    Hanning: w[i] = 0.5 * (1 - cos(2 * π * i / (N - 1)))
+    ```
+    ```
+    Hamming: w[i] = 0.54 - 0.46 * cos(2 * π * i / (N - 1))
+    ```
+    ```
+    Blackman: w[i] = 0.42 - 0.5 * cos(2 * π * i / (N - 1)) + 0.08 * cos(4 * π * i / (N - 1))
+    ```
+    - Rectangular: w[i] = 1.0
+    - N = segment length.
+  - **Windowed Segment**:
+    - Regular: `segmentData[i] = data[start + i] * w[i]`
+    - `start = segment index * (segmentLength - overlap)`
+  - **Power Spectrum**:
+    - Regular: 
+    ```
+    PSD[i] = (1 / (windowPower * samplingRate)) * |FFT(segmentData)[i]|^2 / numSegments
+    ```
+    ```
+    windowPower = sum(w[i]^2) / segmentLength
+    ```
+    - FFT computed via Cooley-Tukey algorithm.
+  - **Frequencies**:
+    - Regular: 
+    ```
+    frequencies[i] = i * (1 / (samplingRate * segmentLength))
+    ```
+
+### Short-Time Fourier Transform (STFT) for Heatmap
+- **Purpose**: Computes time-varying spectral content for visualization in a time-frequency heatmap.
+- **Equations**:
+  - **Heatmap Power**:
+    - Regular: 
+    ```
+    heatmapPsd[i, seg] = (1 / (windowPower * samplingRate)) * |FFT(segmentData)[i]|^2
+    ```
+  - **Time Points**:
+    - Regular: 
+    ```
+    heatmapTimes[seg] = seg * (segmentLength - overlap) * samplingRate
+    ```
+
+### Turbulence Detection
+- **Purpose**: Identifies turbulence by checking if the spectral slope approximates -5/3.
+- **Equations**:
+  - **Slope Calculation**:
+    - Regular: 
+    ```
+    slope = sum((logFreq[i] - meanLogFreq) * (logPower[i] - meanLogPower)) / sum((logFreq[i] - meanLogFreq)^2)
+    ```
+    ```
+    logFreq[i] = log10(frequencies[i]), logPower[i] = log10(max(PSD[i], 1e-10))
+    ```
+    - Turbulence detected if |slope + 5/3| < 0.5.
+
+### Mixing Event Detection
+- **Purpose**: Identifies high-variability events indicating mixing in the time series.
+- **Equations**:
+  - **Window Variance**:
+    - Regular: `variance = sum((x[i] - mean)^2) / windowSize`
+    - `mean = sum(x[i]) / windowSize`
+    - x[i] = time series values in a window of size 5.
+  - **Standard Deviation**:
+    - Regular: `stdDev = sqrt(variance)`
+  - **Threshold**:
+    - Regular: If stdDev > threshold, record a mixing event.
+    - threshold = 0.2 (Richardson Number), 0.03 (Velocity), 0.5 (Water Level).
+
+### EOF/POD Analysis via Singular Value Decomposition (SVD)
+- **Purpose**: Decomposes spatial-temporal data into spatial modes and temporal coefficients.
+- **Equations**:
+  - **Data Matrix**:
+    - Regular: 
+    ```
+    dataMatrix[s, t] = salinityData[t][s, 0] or velocityData[t][s, 0]
+    ```
+    - s = spatial index, t = time index.
+  - **Mean Subtraction**:
+    - Regular: 
+    ```
+    dataMatrix[s, t] = dataMatrix[s, t] - (sum(dataMatrix[s, t]) / timeDim)
+    ```
+  - **Power Iteration for SVD**:
+    - Initialize random vector v.
+    - Iterate: `u[i] = sum(dataMatrix[i, j] * v[j])`, normalize u.
+    - Iterate: `v[j] = sum(dataMatrix[i, j] * u[i])`, normalize v.
+    - Singular value: `sigma = sqrt(sum(Av[i]^2)), Av[i] = sum(dataMatrix[i, j] * v[j])`
+    - Spatial mode: `spatialModes[m][i] = Av[i] / sigma`
+    - Temporal coefficients: `temporalCoefficients[m] = v`
+  - **Explained Variance**:
+    - Regular: 
+    ```
+    explainedVariance[m] = (singularValues[m]^2 / sum(singularValues[i]^2)) * 100
+    ```
+
+### Fast Fourier Transform (FFT)
+- **Purpose**: Computes the Fourier transform for spectral analysis using the Cooley-Tukey algorithm.
+- **Equations**:
+  - **Bit-Reversal Permutation**:
+    - Regular: For i from 0 to n-1, rev = bit-reverse(i, logN), swap data[i] and data[rev] if rev > i.
+  - **Butterfly Operation**:
+    - Regular: For size = 2 to n, `halfSize = size/2, angleStep = -2 * π / size`
+    - For each block: t = w * data[k], data[k] = data[j] - t, data[j] = data[j] + t
+    - w = cos(angleStep * (j - i)) + i * sin(angleStep * (j - i))
